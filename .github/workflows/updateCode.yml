@@ -1,0 +1,23 @@
+name: Update Code
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  gitPull:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY_HETZNER }}
+
+      - name: GitPull
+        run: |
+          ssh -o StrictHostKeyChecking=no root@65.21.233.28 "cd ../services/presence-service && git pull origin main"
