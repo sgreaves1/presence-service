@@ -2,6 +2,15 @@ require('dotenv').config();
 const http = require('http');
 const app = require('./app');
 const WebSocket = require('ws');
+const admin = require('firebase-admin');
+
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+  })
+});
 
 const PORT = process.env.PORT || 9671;
 
@@ -10,24 +19,43 @@ const server = http.createServer(app);
 // Attach WebSocket server
 const wss = new WebSocket.Server({ server });
 
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-  
-  ws.on('message', (data) => {
-    const msg = JSON.parse(data);
-    console.log('Received:', msg);
+const onlineUsers = new Map();
 
-    // Broadcast to all clients
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(msg));
-      }
+wss.on('connection', async (ws, req) => {
+    const token = req.url.split('token=')[1] || req.headers.authorization?.replace('Bearer ', '');
+
+    if (!token) {
+      ws.close(1008, 'No token provided');
+      return;
+    }
+
+    try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    ws.user = decodedToken; // Attach user info to WebSocket
+    console.log('Authenticated user:', decodedToken.uid);
+    
+    // Now proceed with existing logic
+    onlineUsers.set(decodedToken.uid, ws);
+    
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data);
+      msg.userId = decodedToken.uid; // Ensure userId is set
+      messageHandler.handleMessage(ws, msg);
     });
-  });
+    
+  } catch (error) {
+    console.error('Auth error:', error);
+    ws.close(1008, 'Invalid token');
+  }
   
   ws.on('close', () => {
     console.log('Client disconnected');
+    if (ws.user && ws.user.uid) {
+      onlineUsers.delete(ws.user.uid);
+      console.log(`User ${ws.user.uid} removed from online users`);
+    }
   });
+  
 });
 
 server.listen(PORT, () => {
