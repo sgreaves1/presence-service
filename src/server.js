@@ -4,6 +4,7 @@ const app = require('./app');
 const WebSocket = require('ws');
 const admin = require('firebase-admin');
 const WebSocketMessageHandler = require('./helpers/WebSocketMessageHandler');
+const { setOnlineUsers } = require('./routes/users');
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -22,6 +23,9 @@ const wss = new WebSocket.Server({ server });
 
 const onlineUsers = new Map();
 const messageHandler = new WebSocketMessageHandler(onlineUsers);
+
+// Inject onlineUsers into users route
+setOnlineUsers(onlineUsers);
 
 wss.on('connection', async (ws, req) => {
     const token = req.url.split('token=')[1] || req.headers.authorization?.replace('Bearer ', '');
