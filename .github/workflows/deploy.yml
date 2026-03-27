@@ -1,0 +1,58 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY_HETZNER }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Add Contabo to known hosts
+        run: ssh-keyscan 65.21.233.28 >> ~/.ssh/known_hosts
+
+      - name: Use node 22 version
+        run: ssh -i ~/.ssh/id_rsa root@65.21.233.28 'source ~/.nvm/nvm.sh && nvm use 22.2.0'
+
+      - name: Check if server is running and kill it
+        run: |
+          isRunning=$(ssh -i ~/.ssh/id_rsa root@65.21.233.28 'lsof -i :9671 -sTCP:LISTEN -t' || true)
+          if [ -n "$isRunning" ]; then
+            echo "Server is running on port 9671, killing process $isRunning..."
+            ssh -i ~/.ssh/id_rsa root@65.21.233.28 "kill -9 $isRunning"
+          else
+            echo "Server is not running on port 9671."
+          fi
+
+      - name: Deploy server
+        run: |
+          ssh -i ~/.ssh/id_rsa root@65.21.233.28 "
+            source ~/.nvm/nvm.sh && 
+            cd ../services/presence-service && 
+            npm install --no-audit --no-fund --loglevel=error && 
+            screen -dmS presence-service sh -c 'npm start'
+          "
+
+      - name: Wait for server to start
+        run: sleep 5s
+
+      - name: Check server is running
+        run: |
+          curl -I http://65.21.233.28:9671/health
+          status=$?
+          if [ $status -eq 0 ]; then
+            echo "Deploy was successful"
+          else
+            echo "Deploy failed. Status code: $status"
+            exit 1
+          fi
+
